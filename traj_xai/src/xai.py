@@ -4,30 +4,35 @@ XAI methods for trajectory explanations with logging.
 
 import random
 import logging
+import torch
 from typing import List, Generator, Union, Any
 
 import numpy as np
 from fastdtw import fastdtw
 from pactus import Dataset
+from pactus.dataset import Data
 from scipy.spatial.distance import euclidean
 from sklearn.linear_model import LogisticRegression
+from sklearn.preprocessing import LabelEncoder
 from yupi import Trajectory
 
 
 # -------------------------------------------------------------------
 # Logger setup
 # -------------------------------------------------------------------
+
+# Ghi log ra file thay vì terminal
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 if not logger.handlers:
-    ch = logging.StreamHandler()
-    ch.setLevel(logging.DEBUG)
+    fh = logging.FileHandler('traj_xai_log.txt', mode='a', encoding='utf-8')
+    fh.setLevel(logging.DEBUG)
     formatter = logging.Formatter(
         '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
-    ch.setFormatter(formatter)
-    logger.addHandler(ch)
+    fh.setFormatter(formatter)
+    logger.addHandler(fh)
 
 
 class TrajectoryManipulator:
@@ -128,13 +133,19 @@ class TrajectoryManipulator:
             labels = [1] * (len(Z_trajs) - 1) + [0]
             Z_pro = Dataset("custom", Z_trajs, labels)
 
-            preds = self._predict(Z_pro)
-            logger.debug(f"Predictions: {preds}, type={type(preds)}")
+            if hasattr(self.model, 'name') and 'trajformer' in self.model.name.lower():
+                # For TrajFormer models, use proper data preparation
+                from pactus.dataset import Data
+                custom_data = Data(Z_pro.trajs, Z_pro.labels)
+                preds = self.model.predict(custom_data)
+            else:
+                preds = self._predict(Z_pro)
+            # logger.debug(f"Predictions: {preds}, type={type(preds)}")
 
             pred_labels = self._normalize_predictions(preds)
             Y = self._decode_labels(pred_labels)
 
-            logger.debug(f"Decoded labels (first 10): {Y[:10]}")
+            # logger.debug(f"Decoded labels (first 10): {Y[:10]}")
 
             if len(np.unique(Y)) == 1:
                 logger.warning("Only one class detected, skipping explanation.")
@@ -149,9 +160,30 @@ class TrajectoryManipulator:
             raise
 
     def _predict(self, X: np.ndarray) -> np.ndarray:
+        logger.debug(f"_predict: type(X)={type(X)}, hasattr(X, 'shape')={hasattr(X, 'shape')}, shape={getattr(X, 'shape', None)}")
+        if hasattr(X, "__len__"):
+            logger.debug(f"_predict: len(X)={len(X)}")
         if not hasattr(self.model, "predict"):
             raise AttributeError("Model must implement predict")
-        return self.model.predict(X)
+        try:
+            # Check if it's a TrajFormer model that needs special data preparation
+            if hasattr(self.model, 'name') and 'trajformer' in self.model.name.lower():
+                logger.debug("Using TrajFormer-specific data preparation")
+                # Prepare data in the format expected by TrajFormer
+                x_trajs, masks, distances = self._prepare_data_for_trajformer(X)
+                # Create a custom Data object that the TrajFormer model can use
+                from pactus.dataset import Data
+                custom_data = Data(X.trajs, X.labels)
+                result = self.model.predict(custom_data)
+            else:
+                # Regular prediction for other models
+                result = self.model.predict(X)
+                
+            logger.debug(f"_predict: result type={type(result)}, shape={getattr(result, 'shape', None)}")
+            return result
+        except Exception as e:
+            logger.error(f"Error in _predict: {e}", exc_info=True)
+            raise
 
     def _normalize_predictions(self, preds: Union[np.ndarray, tuple]) -> np.ndarray:
         logger.debug(f"Normalizing predictions: type={type(preds)}, shape={getattr(preds,'shape',None)}")
@@ -168,6 +200,134 @@ class TrajectoryManipulator:
                 return preds.ravel()
 
         raise ValueError(f"Unsupported prediction format: {type(preds)}, shape={getattr(preds,'shape',None)}")
+        
+    def _prepare_data_for_trajformer(self, dataset):
+        """
+        Prepare data in the format expected by TrajFormer model.
+        Returns:
+            x_trajs: tensor of trajectory features
+            masks: attention masks
+            distances: distance matrices for CPE
+        """
+        logger.debug(f"Preparing data for TrajFormer: dataset has {len(dataset.trajs)} trajectories")
+        
+        try:
+            import torch
+            import numpy as np
+            
+            # Extract parameters from the model
+            if hasattr(self.model, 'max_points'):
+                max_points = self.model.max_points
+            elif hasattr(self.model, 'model') and hasattr(self.model.model, 'max_points'):
+                max_points = self.model.model.max_points
+            else:
+                max_points = 100  # Default value
+                
+            if hasattr(self.model, 'c_in'):
+                c_in = self.model.c_in
+            elif hasattr(self.model, 'model') and hasattr(self.model.model, 'c_in'):
+                c_in = self.model.model.c_in
+            else:
+                c_in = 6  # Default value
+                
+            all_features = []
+            all_masks = []
+            all_distances = []
+            
+            for traj in dataset.trajs:
+                # Extract coordinates and time
+                coords = np.array(traj.r)  # coordinates
+                times = np.array(traj.t) if hasattr(traj, 't') and traj.t is not None else np.arange(len(coords))
+                
+                # Calculate features
+                features = self._extract_features_for_trajformer(coords, times, c_in)
+                
+                # Pad or truncate to max_points
+                if len(features) > max_points:
+                    features = features[:max_points]
+                    
+                # Create mask (False for actual data, True for padding)
+                mask = torch.zeros(max_points, dtype=torch.bool)
+                if len(features) < max_points:
+                    # Pad features
+                    padding = np.zeros((max_points - len(features), c_in))
+                    features = np.vstack([features, padding])
+                    # Set mask for padded values
+                    mask[len(features):] = True
+                    
+                # Calculate distance matrix for CPE
+                dist_matrix = self._calculate_distances_for_trajformer(coords, max_points)
+                
+                all_features.append(features)
+                all_masks.append(mask)
+                all_distances.append(dist_matrix)
+                
+            # Convert to tensors
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            return (
+                torch.tensor(np.array(all_features), dtype=torch.float32).to(device),
+                torch.stack(all_masks).to(device),
+                torch.tensor(np.array(all_distances), dtype=torch.float32).to(device),
+            )
+            
+        except Exception as e:
+            logger.error(f"Error preparing data for TrajFormer: {e}", exc_info=True)
+            raise
+        
+    def _extract_features_for_trajformer(self, coords, times, c_in=6):
+        """Extract features from trajectory coordinates and times for TrajFormer"""
+        n_points = len(coords)
+        features = np.zeros((n_points, c_in))
+        
+        # Set lat, lng
+        features[:, 0] = coords[:, 0]  # latitude
+        features[:, 1] = coords[:, 1]  # longitude
+        
+        # Calculate time differences
+        if n_points > 1:
+            # Use provided times if available
+            dt = np.diff(times, prepend=times[0])
+            features[:, 2] = dt  # delta time
+            
+            # Calculate distances between consecutive points
+            dx = np.diff(coords[:, 0], prepend=coords[0, 0])
+            dy = np.diff(coords[:, 1], prepend=coords[0, 1])
+            distances = np.sqrt(dx**2 + dy**2)
+            features[:, 3] = distances  # delta distance
+            
+            # Calculate speeds
+            with np.errstate(divide="ignore", invalid="ignore"):
+                speeds = np.zeros_like(dt)
+                valid_dt = dt > 0
+                speeds[valid_dt] = distances[valid_dt] / dt[valid_dt]
+            features[:, 4] = speeds  # speed
+            
+            # Calculate accelerations
+            accels = np.diff(speeds, prepend=speeds[0])
+            features[:, 5] = accels  # acceleration
+            
+        return features
+        
+    def _calculate_distances_for_trajformer(self, coords, max_points):
+        """Calculate distance matrix for CPE module of TrajFormer"""
+        kernel_size = 9  # Default kernel size used in TrajFormer CPE
+        n_points = min(len(coords), max_points)
+        distances = np.zeros((max_points, kernel_size, 2))
+        
+        # For each point, calculate distances to kernel_size neighbors
+        half_k = kernel_size // 2
+        for i in range(n_points):
+            for j in range(kernel_size):
+                idx = i - half_k + j
+                if 0 <= idx < n_points:
+                    # Calculate distance components
+                    if i != idx:  # Avoid self-distance calculation issues
+                        dx = coords[i, 0] - coords[idx, 0]
+                        dy = coords[i, 1] - coords[idx, 1]
+                        distances[i, j, 0] = dx
+                        distances[i, j, 1] = dy
+                        
+        return distances
 
     def _decode_labels(self, pred_labels: np.ndarray) -> list:
         if hasattr(self.model, "encoder"):
@@ -180,7 +340,7 @@ class TrajectoryManipulator:
         clf = LogisticRegression()
         weights = self._calculate_weight()
 
-        if Y and isinstance(Y[0], str):
+        if len(Y) > 0 and isinstance(Y[0], str):
             from sklearn.preprocessing import LabelEncoder
             le = LabelEncoder()
             Y_encoded = le.fit_transform(Y)
@@ -197,7 +357,14 @@ class TrajectoryManipulator:
             labels = [1] * (len(Z_trajs) - 1) + [0]
             Z_pro = Dataset("custom1", Z_trajs, labels)
 
-            preds = self._predict(Z_pro)
+            if hasattr(self.model, 'name') and 'trajformer' in self.model.name.lower():
+                # For TrajFormer models, use proper data preparation
+                from pactus.dataset import Data
+                custom_data = Data(Z_pro.trajs, Z_pro.labels)
+                preds = self.model.predict(custom_data)
+            else:
+                preds = self._predict(Z_pro)
+                
             Y = self._normalize_predictions(preds)
 
             if Y is None or len(Y) == 0:
@@ -232,18 +399,24 @@ class TrajectoryManipulator:
 
     def get_Y(self) -> List[Any]:
         try:
-            Z_trajs = [Trajectory(points=np.array(self.X))]
+            Z_trajs = [Trajectory(points=(self.X))]
             labels = [0]
             Z_pro = Dataset("custom1", Z_trajs, labels)
-
-            preds = self._predict(Z_pro)
+            logger.debug(f"get_Y: Z_pro type={type(Z_pro)}, Z_trajs type={type(Z_trajs)}, len(Z_trajs)={len(Z_trajs)}")
+            
+            if hasattr(self.model, 'name') and 'trajformer' in self.model.name.lower():
+                # For TrajFormer models, we need to use the proper data preparation
+                from pactus.dataset import Data
+                custom_data = Data(Z_pro.trajs, Z_pro.labels)
+                preds = self.model.predict(custom_data)
+            else:
+                preds = self._predict(Z_pro)
+                
             pred_labels = self._normalize_predictions(preds)
             Y = self._decode_labels(pred_labels)
-
             if isinstance(Y, np.ndarray):
                 return Y.tolist()
             return list(Y)
-
         except Exception as e:
             logger.error(f"Error in get_Y: {e}", exc_info=True)
             return []
