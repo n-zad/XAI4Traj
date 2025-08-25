@@ -129,30 +129,21 @@ class TrajectoryManipulator:
 
     def explain(self) -> Union[np.ndarray, None]:
         try:
+            logger.debug("Starting explanation process...")
             Z_trajs = [Trajectory(points=np.array(Z_traj)) for Z_traj in self._perturbed_traj_generator()]
             labels = [1] * (len(Z_trajs) - 1) + [0]
             Z_pro = Dataset("custom", Z_trajs, labels)
-
-            if hasattr(self.model, 'name') and 'trajformer' in self.model.name.lower():
-                # For TrajFormer models, use proper data preparation
-                from pactus.dataset import Data
-                custom_data = Data(Z_pro.trajs, Z_pro.labels)
-                preds = self.model.predict(custom_data)
-            else:
-                preds = self._predict(Z_pro)
-            # logger.debug(f"Predictions: {preds}, type={type(preds)}")
+            preds = self._predict(Z_pro)
 
             pred_labels = self._normalize_predictions(preds)
             Y = self._decode_labels(pred_labels)
-
-            # logger.debug(f"Decoded labels (first 10): {Y[:10]}")
 
             if len(np.unique(Y)) == 1:
                 logger.warning("Only one class detected, skipping explanation.")
                 return None
 
             self._fit_surrogate(Y)
-            logger.info("Surrogate model fitted successfully.")
+            logger.info("Finished explanation process.")
             return self.coef_
 
         except Exception as e:
@@ -160,26 +151,8 @@ class TrajectoryManipulator:
             raise
 
     def _predict(self, X: np.ndarray) -> np.ndarray:
-        logger.debug(f"_predict: type(X)={type(X)}, hasattr(X, 'shape')={hasattr(X, 'shape')}, shape={getattr(X, 'shape', None)}")
-        if hasattr(X, "__len__"):
-            logger.debug(f"_predict: len(X)={len(X)}")
-        if not hasattr(self.model, "predict"):
-            raise AttributeError("Model must implement predict")
         try:
-            # Check if it's a TrajFormer model that needs special data preparation
-            if hasattr(self.model, 'name') and 'trajformer' in self.model.name.lower():
-                logger.debug("Using TrajFormer-specific data preparation")
-                # Prepare data in the format expected by TrajFormer
-                x_trajs, masks, distances = self._prepare_data_for_trajformer(X)
-                # Create a custom Data object that the TrajFormer model can use
-                from pactus.dataset import Data
-                custom_data = Data(X.trajs, X.labels)
-                result = self.model.predict(custom_data)
-            else:
-                # Regular prediction for other models
-                result = self.model.predict(X)
-                
-            logger.debug(f"_predict: result type={type(result)}, shape={getattr(result, 'shape', None)}")
+            result = self.model.predict(X)
             return result
         except Exception as e:
             logger.error(f"Error in _predict: {e}", exc_info=True)
@@ -201,78 +174,78 @@ class TrajectoryManipulator:
 
         raise ValueError(f"Unsupported prediction format: {type(preds)}, shape={getattr(preds,'shape',None)}")
         
-    def _prepare_data_for_trajformer(self, dataset):
-        """
-        Prepare data in the format expected by TrajFormer model.
-        Returns:
-            x_trajs: tensor of trajectory features
-            masks: attention masks
-            distances: distance matrices for CPE
-        """
-        logger.debug(f"Preparing data for TrajFormer: dataset has {len(dataset.trajs)} trajectories")
+    # def _prepare_data_for_trajformer(self, dataset):
+    #     """
+    #     Prepare data in the format expected by TrajFormer model.
+    #     Returns:
+    #         x_trajs: tensor of trajectory features
+    #         masks: attention masks
+    #         distances: distance matrices for CPE
+    #     """
+    #     logger.debug(f"Preparing data for TrajFormer: dataset has {len(dataset.trajs)} trajectories")
         
-        try:
-            import torch
-            import numpy as np
+    #     try:
+    #         import torch
+    #         import numpy as np
             
-            # Extract parameters from the model
-            if hasattr(self.model, 'max_points'):
-                max_points = self.model.max_points
-            elif hasattr(self.model, 'model') and hasattr(self.model.model, 'max_points'):
-                max_points = self.model.model.max_points
-            else:
-                max_points = 100  # Default value
+    #         # Extract parameters from the model
+    #         if hasattr(self.model, 'max_points'):
+    #             max_points = self.model.max_points
+    #         elif hasattr(self.model, 'model') and hasattr(self.model.model, 'max_points'):
+    #             max_points = self.model.model.max_points
+    #         else:
+    #             max_points = 100  # Default value
                 
-            if hasattr(self.model, 'c_in'):
-                c_in = self.model.c_in
-            elif hasattr(self.model, 'model') and hasattr(self.model.model, 'c_in'):
-                c_in = self.model.model.c_in
-            else:
-                c_in = 6  # Default value
+    #         if hasattr(self.model, 'c_in'):
+    #             c_in = self.model.c_in
+    #         elif hasattr(self.model, 'model') and hasattr(self.model.model, 'c_in'):
+    #             c_in = self.model.model.c_in
+    #         else:
+    #             c_in = 6  # Default value
                 
-            all_features = []
-            all_masks = []
-            all_distances = []
+    #         all_features = []
+    #         all_masks = []
+    #         all_distances = []
             
-            for traj in dataset.trajs:
-                # Extract coordinates and time
-                coords = np.array(traj.r)  # coordinates
-                times = np.array(traj.t) if hasattr(traj, 't') and traj.t is not None else np.arange(len(coords))
+    #         for traj in dataset.trajs:
+    #             # Extract coordinates and time
+    #             coords = np.array(traj.r)  # coordinates
+    #             times = np.array(traj.t) if hasattr(traj, 't') and traj.t is not None else np.arange(len(coords))
                 
-                # Calculate features
-                features = self._extract_features_for_trajformer(coords, times, c_in)
+    #             # Calculate features
+    #             features = self._extract_features_for_trajformer(coords, times, c_in)
                 
-                # Pad or truncate to max_points
-                if len(features) > max_points:
-                    features = features[:max_points]
+    #             # Pad or truncate to max_points
+    #             if len(features) > max_points:
+    #                 features = features[:max_points]
                     
-                # Create mask (False for actual data, True for padding)
-                mask = torch.zeros(max_points, dtype=torch.bool)
-                if len(features) < max_points:
-                    # Pad features
-                    padding = np.zeros((max_points - len(features), c_in))
-                    features = np.vstack([features, padding])
-                    # Set mask for padded values
-                    mask[len(features):] = True
+    #             # Create mask (False for actual data, True for padding)
+    #             mask = torch.zeros(max_points, dtype=torch.bool)
+    #             if len(features) < max_points:
+    #                 # Pad features
+    #                 padding = np.zeros((max_points - len(features), c_in))
+    #                 features = np.vstack([features, padding])
+    #                 # Set mask for padded values
+    #                 mask[len(features):] = True
                     
-                # Calculate distance matrix for CPE
-                dist_matrix = self._calculate_distances_for_trajformer(coords, max_points)
+    #             # Calculate distance matrix for CPE
+    #             dist_matrix = self._calculate_distances_for_trajformer(coords, max_points)
                 
-                all_features.append(features)
-                all_masks.append(mask)
-                all_distances.append(dist_matrix)
+    #             all_features.append(features)
+    #             all_masks.append(mask)
+    #             all_distances.append(dist_matrix)
                 
-            # Convert to tensors
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-            return (
-                torch.tensor(np.array(all_features), dtype=torch.float32).to(device),
-                torch.stack(all_masks).to(device),
-                torch.tensor(np.array(all_distances), dtype=torch.float32).to(device),
-            )
+    #         # Convert to tensors
+    #         device = "cuda" if torch.cuda.is_available() else "cpu"
+    #         return (
+    #             torch.tensor(np.array(all_features), dtype=torch.float32).to(device),
+    #             torch.stack(all_masks).to(device),
+    #             torch.tensor(np.array(all_distances), dtype=torch.float32).to(device),
+    #         )
             
-        except Exception as e:
-            logger.error(f"Error preparing data for TrajFormer: {e}", exc_info=True)
-            raise
+    #     except Exception as e:
+    #         logger.error(f"Error preparing data for TrajFormer: {e}", exc_info=True)
+    #         raise
         
     def _extract_features_for_trajformer(self, coords, times, c_in=6):
         """Extract features from trajectory coordinates and times for TrajFormer"""
@@ -353,17 +326,12 @@ class TrajectoryManipulator:
 
     def get_Y_eval_sorted(self) -> Union[List[Any], np.ndarray]:
         try:
+            logger.debug("Starting get_Y_eval_sorted process...")
             Z_trajs = [Trajectory(points=np.array(Z_traj)) for Z_traj in self.Z_eval]
             labels = [1] * (len(Z_trajs) - 1) + [0]
             Z_pro = Dataset("custom1", Z_trajs, labels)
 
-            if hasattr(self.model, 'name') and 'trajformer' in self.model.name.lower():
-                # For TrajFormer models, use proper data preparation
-                from pactus.dataset import Data
-                custom_data = Data(Z_pro.trajs, Z_pro.labels)
-                preds = self.model.predict(custom_data)
-            else:
-                preds = self._predict(Z_pro)
+            preds = self._predict(Z_pro)
                 
             Y = self._normalize_predictions(preds)
 
@@ -375,6 +343,7 @@ class TrajectoryManipulator:
 
             sorted_indices = np.argsort(abs(class_coef))[::-1]
             result_sorted: List[Any] = [Y[i] for i in sorted_indices if i < len(Y)]
+            logger.debug("Finished get_Y_eval_sorted process.")
             return result_sorted
 
         except Exception as e:
@@ -399,23 +368,19 @@ class TrajectoryManipulator:
 
     def get_Y(self) -> List[Any]:
         try:
-            Z_trajs = [Trajectory(points=(self.X))]
+            logger.debug("Starting get_Y process...")
+            Z_trajs = [Trajectory(points=np.array(self.X))]
             labels = [0]
             Z_pro = Dataset("custom1", Z_trajs, labels)
-            logger.debug(f"get_Y: Z_pro type={type(Z_pro)}, Z_trajs type={type(Z_trajs)}, len(Z_trajs)={len(Z_trajs)}")
-            
-            if hasattr(self.model, 'name') and 'trajformer' in self.model.name.lower():
-                # For TrajFormer models, we need to use the proper data preparation
-                from pactus.dataset import Data
-                custom_data = Data(Z_pro.trajs, Z_pro.labels)
-                preds = self.model.predict(custom_data)
-            else:
-                preds = self._predict(Z_pro)
+            # logger.debug(f"get_Y: Z_pro type={type(Z_pro)}, Z_trajs type={type(Z_trajs)}, len(Z_trajs)={len(Z_trajs)}")
+
+            preds = self._predict(Z_pro)
                 
             pred_labels = self._normalize_predictions(preds)
             Y = self._decode_labels(pred_labels)
             if isinstance(Y, np.ndarray):
                 return Y.tolist()
+            logger.debug(f"Finished get_Y process, Y length: {len(Y)}")
             return list(Y)
         except Exception as e:
             logger.error(f"Error in get_Y: {e}", exc_info=True)
