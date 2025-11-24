@@ -8,6 +8,7 @@ from .perturbation import (
     gaussian_perturbation,
     rotation_perturbation,
     scaling_perturbation,
+    gan_perturbation,
 )
 from .segmentation import (
     mdl_segmentation,
@@ -34,6 +35,7 @@ __all__ = [
     "gaussian_perturbation",
     "scaling_perturbation",
     "rotation_perturbation",
+    "gan_perturbation",
     "ap_at_k",
     "TrajectoryManipulator",
     "experiment",

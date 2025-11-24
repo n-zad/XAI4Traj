@@ -21,6 +21,7 @@ class Perturbation:
             "gaussian": self._gaussian_perturbation,
             "scaling": self._scaling_perturbation,
             "rotation": self._rotation_perturbation,
+            "gan": self._gan_perturbation,
         }
 
         # Default parameters for each method
@@ -28,6 +29,7 @@ class Perturbation:
             "gaussian": {"mean": 0, "std": 3, "scale": 1.5},
             "scaling": {"scale_factor": 1.2},
             "rotation": {"angle": np.pi / 18},
+            "gan": {},
         }
 
     def _gaussian_perturbation(
@@ -100,6 +102,71 @@ class Perturbation:
             new_y = x * sin_angle + y * cos_angle
             new_segment.append((new_x, new_y))
         return new_segment
+    
+    def _gan_perturbation(
+        self, 
+        segment: List[Tuple[float, float]],
+        G,
+        device="cpu",
+        preserve_endpoints=True,      # keep start/end points fixed
+        scale=0.5,
+    ) -> List[Tuple[float, float]]:
+        """
+        Use a GAN to perturb a trajectory segment.
+
+        Parameters:
+            segment (list): List of trajectory points
+            G : torch.nn.Module
+                Pre-trained generator. The model should be set to eval() outside.
+            device : str
+                "cpu" or CUDA device (e.g., "cuda:0").
+            preserve_endpoints : bool
+                If True, forces residual to be 0 at the endpoints (keeps first & last points).
+            scale : float
+                scalar for the residual
+
+        Returns:
+            list: Perturbed trajectory segment
+        """
+        try:
+            import torch
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.setLevel(logging.DEBUG)
+
+            with torch.no_grad():
+                G = G.to(device)
+
+                obs_traj = torch.tensor(np.stack(segment, axis=0), dtype=torch.float)   # (T, 2)
+                obs_traj = obs_traj.unsqueeze(1)                                        # (T, 1, 2)
+                obs_traj = obs_traj.to(device)
+
+                obs_traj_rel = torch.zeros_like(obs_traj)
+                obs_traj_rel[1:] = obs_traj[1:] - obs_traj[:-1]
+                obs_traj_rel = obs_traj_rel.to(device)
+
+                seq_start_end = torch.tensor([(0, 1)], dtype=torch.long, device=device)
+
+                resid = G(obs_traj, obs_traj_rel, seq_start_end)
+                logger.debug(f"residuals: {resid}")
+
+                resid = scale * resid.squeeze(0)  # (T, 2)
+
+                # Preserve endpoints by setting the first and last residuals to 0
+                if preserve_endpoints:
+                    resid[0] = 0.0
+                    resid[-1] = 0.0
+
+                resid = resid.cpu().numpy()
+                if len(resid.shape) == 3:
+                    resid = resid.squeeze()
+
+                new_segment = [(segment[i][0]+resid[i][0], segment[i][1]+resid[i][1]) for i in range(len(segment))]
+
+            return new_segment
+        
+        except Exception as e:
+            raise e
 
     def apply(
         self,

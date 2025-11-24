@@ -377,7 +377,8 @@ class TrajectoryManipulator:
             preds = self._predict(Z_pro)
                 
             pred_labels = self._normalize_predictions(preds)
-            Y = self._decode_labels(pred_labels)
+            # Y = self._decode_labels(pred_labels)
+            Y = pred_labels
             if isinstance(Y, np.ndarray):
                 return Y.tolist()
             logger.debug(f"Finished get_Y process, Y length: {len(Y)}")

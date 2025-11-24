@@ -56,7 +56,7 @@ class TrajFormerModel(Model):
         cpe_layers=1,
         metrics=None,
         random_state: Union[int, None] = None,
-        device="mps" if torch.cuda.is_available() else "cpu",
+        device="cuda" if torch.cuda.is_available() else "cpu",
     ):
         super().__init__(NAME)
         self.c_in = c_in
