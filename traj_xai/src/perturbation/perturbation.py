@@ -26,8 +26,8 @@ class Perturbation:
 
         # Default parameters for each method
         self.default_params = {
-            "gaussian": {"mean": 0, "std": 3, "scale": 1.5},
-            "scaling": {"scale_factor": 1.2},
+            "gaussian": {"mean": 0, "std": 3, "scale": 1.5, "has_time": False},
+            "scaling": {"scale_factor": 1.2, "has_time": False},
             "rotation": {"angle": np.pi / 18},
             "gan": {},
         }
@@ -38,6 +38,7 @@ class Perturbation:
         mean: float = 0,
         std: float = 3,
         scale: float = 1.5,
+        has_time: bool = False,
     ) -> List[Tuple[float, float]]:
         """
         Apply Gaussian noise perturbation to a trajectory segment.
@@ -47,20 +48,28 @@ class Perturbation:
             mean (float): Mean of Gaussian noise
             std (float): Standard deviation of Gaussian noise
             scale (float): Scale factor for noise magnitude
+            has_time (bool): whether segment contains temporal data
 
         Returns:
             list: Perturbed trajectory segment
         """
         new_segment = []
-        for point in segment:
-            x, y = point
-            new_x = x + np.random.normal(mean, std) * scale
-            new_y = y + np.random.normal(mean, std) * scale
-            new_segment.append((new_x, new_y))
+        if has_time == False:
+            for point in segment:
+                x, y = point
+                new_x = x + np.random.normal(mean, std) * scale
+                new_y = y + np.random.normal(mean, std) * scale
+                new_segment.append((new_x, new_y))
+        else:
+            for x, y, t in segment:
+                new_x = x + np.random.normal(mean, std) * scale
+                new_y = y + np.random.normal(mean, std) * scale
+                new_t = t + np.random.normal(mean, std) * scale
+                new_segment.append((new_x, new_y, new_t))
         return new_segment
 
     def _scaling_perturbation(
-        self, segment: List[Tuple[float, float]], scale_factor: float = 1.2
+        self, segment: List[Tuple[float, float]], scale_factor: float = 1.2, has_time: bool = False,
     ) -> List[Tuple[float, float]]:
         """
         Apply scaling perturbation to a trajectory segment.
@@ -68,16 +77,24 @@ class Perturbation:
         Parameters:
             segment (list): List of trajectory points
             scale_factor (float): Factor to scale the trajectory by
+            has_time (bool): whether segment contains temporal data
 
         Returns:
             list: Scaled trajectory segment
         """
         new_segment = []
-        for point in segment:
-            x, y = point
-            new_x = x * scale_factor
-            new_y = y * scale_factor
-            new_segment.append((new_x, new_y))
+        if has_time == False:
+            for point in segment:
+                x, y = point
+                new_x = x * scale_factor
+                new_y = y * scale_factor
+                new_segment.append((new_x, new_y))
+        else:
+            for x, y, t in segment:
+                new_x = x * scale_factor
+                new_y = y * scale_factor
+                new_t = t * scale_factor
+                new_segment.append((new_x, new_y, new_t))
         return new_segment
 
     def _rotation_perturbation(
@@ -130,9 +147,6 @@ class Perturbation:
         """
         try:
             import torch
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.setLevel(logging.DEBUG)
 
             with torch.no_grad():
                 G = G.to(device)
@@ -148,7 +162,6 @@ class Perturbation:
                 seq_start_end = torch.tensor([(0, 1)], dtype=torch.long, device=device)
 
                 resid = G(obs_traj, obs_traj_rel, seq_start_end)
-                logger.debug(f"residuals: {resid}")
 
                 resid = scale * resid.squeeze(0)  # (T, 2)
 

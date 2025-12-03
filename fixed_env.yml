@@ -4,34 +4,36 @@ channels:
   - pytorch
   - defaults
 dependencies:
-  - python=3.10
-  - numpy
-  - scipy
-  - scikit-learn
-  - matplotlib
-  - pandas
-  - pytorch
-  - torchvision
-  - torchaudio
-  - xgboost
-  - timm
   - einops
-  - fvcore
-  - iopath
-  - yacs
-  - tqdm
-  - requests
-  - pyyaml
-  - pillow
   - fsspec
+  - fvcore
   - huggingface_hub
+  - iopath
+  - ipywidgets
+  - joblib
+  - jupyter
+  - matplotlib
+  - networkx
+  - numpy
+  - pandas
+  - pillow
+  - pip
+  - python=3.10
+  - pytorch
+  - pyyaml
+  - requests
   - safetensors
+  - scikit-learn
+  - scipy
   - sympy
   - tabulate
-  - joblib
-  - networkx
+  - timm
+  - torchaudio
+  - torchvision
+  - tqdm
   - typing_extensions=4.14.0
-  - pip
+  - xgboost
+  - yacs
   - pip:
       - absl-py
       - astunparse

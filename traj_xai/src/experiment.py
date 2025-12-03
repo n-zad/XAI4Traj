@@ -9,12 +9,13 @@ import logging
 from .evaluation import ap_at_k
 from .utils import check_ram_and_log, generate_unique_name, save_result_row
 from .xai import TrajectoryManipulator
+from .xai_time import TrajectoryManipulator2
 
 
 logger = logging.getLogger(__name__)
 
 
-def experiment(dataset, segment_func, perturbation_func, blackbox_model):
+def experiment(dataset, segment_func, perturbation_func, blackbox_model, time=False):
     """
     Run experiment on a dataset using the specified segmentation and perturbation functions.
 
@@ -23,27 +24,46 @@ def experiment(dataset, segment_func, perturbation_func, blackbox_model):
         segment_func (callable): Function for trajectory segmentation
         perturbation_func (callable): Function for trajectory perturbation
         blackbox_model: The model to explain
+        time: boolean, True if temporal data will be used
     Yields:
         tuple: (trajectory_index, trajectory_name, change_flag, precision_score, status)
     """
     for traj_idx, (traj, label) in enumerate(zip(dataset.trajs, dataset.labels)):
         traj_points = getattr(traj, "r", None)
+        traj_time = getattr(traj, "t", None)
 
         if traj_points is None or len(traj_points) == 0:
             logger.error(f"Trajectory {traj_idx} is empty or None. Skipping...")
             yield traj_idx, None, None, None, "error_empty"
             continue
 
+        if time and (traj_time is None or len(traj_time) == 0):
+            logger.error(f"Trajectory {traj_idx} has no timestamps. Skipping...")
+            yield traj_idx, None, None, None, "error_no_time"
+            continue
+
         traj_name = generate_unique_name(traj_points)
 
-        try:
-            trajectory_experiment = TrajectoryManipulator(
-                traj_points, segment_func, perturbation_func, blackbox_model
-            )
-        except Exception as e:
-            logger.error(f"Init error at trajectory {traj_idx}: {e}", exc_info=True)
-            yield traj_idx, traj_name, None, None, "error_init"
-            continue
+        trajectory_experiment = None
+        if not time:
+            try:
+                trajectory_experiment = TrajectoryManipulator(
+                    traj_points, segment_func, perturbation_func, blackbox_model
+                )
+            except Exception as e:
+                logger.error(f"Init error at trajectory {traj_idx}: {e}", exc_info=True)
+                yield traj_idx, traj_name, None, None, "error_init"
+                continue
+        else:
+            try:
+                traj_points = [list(tr) + [t] for tr, t in zip(traj_points, traj_time)]
+                trajectory_experiment = TrajectoryManipulator2(
+                    traj_points, segment_func, perturbation_func, blackbox_model, has_time=True
+                )
+            except Exception as e:
+                logger.error(f"Init error #2 at trajectory {traj_idx}: {e}", exc_info=True)
+                yield traj_idx, traj_name, None, None, "error_init2"
+                continue
 
         try:
             coef = trajectory_experiment.explain()
@@ -125,7 +145,7 @@ def experiment(dataset, segment_func, perturbation_func, blackbox_model):
         yield traj_idx, traj_name, change, precision_score, "ok"
 
 
-def run_experiments(dataset, segment_funcs, perturbation_funcs, model, log_dir="logs"):
+def run_experiments(dataset, segment_funcs, perturbation_funcs, model, log_dir="logs", time=False, log_idx=None):
     """
     Run multiple experiments with different segmentation and perturbation functions.
 
@@ -135,6 +155,7 @@ def run_experiments(dataset, segment_funcs, perturbation_funcs, model, log_dir="
         perturbation_funcs (list): List of perturbation functions
         model: The model to explain
         log_dir (str): Directory for log files
+        time (bool): If temporal data should be used
     """
     os.makedirs(log_dir, exist_ok=True)
 
@@ -144,7 +165,7 @@ def run_experiments(dataset, segment_funcs, perturbation_funcs, model, log_dir="
             # Generate file path for saving results
             file_path = os.path.join(
                 log_dir,
-                f"{segment_func.__name__}_{perturbation_func.__name__}_results.csv",
+                f"{segment_func.__name__}_{perturbation_func.__name__}_{'time_' if time else ''}_{f'{log_idx}_' if log_idx is not None else ''}results.csv",
             )
 
             logger.info(
@@ -152,7 +173,7 @@ def run_experiments(dataset, segment_funcs, perturbation_funcs, model, log_dir="
             )
 
             # Loop through the experiment results and save row by row
-            for result in experiment(dataset, segment_func, perturbation_func, model):
+            for result in experiment(dataset, segment_func, perturbation_func, model, time=time):
                 traj_idx, traj_name, change, precision_score, status = result
 
                 # Save each row to the CSV
@@ -162,7 +183,7 @@ def run_experiments(dataset, segment_funcs, perturbation_funcs, model, log_dir="
 
                 # Check RAM usage periodically
                 if traj_idx % 10 == 0:
-                    if check_ram_and_log(ram_limit=80, log_dir=log_dir):
+                    if check_ram_and_log(ram_limit=90, log_dir=log_dir):
                         logger.warning("RAM usage too high. Pausing experiment...")
                         break
 

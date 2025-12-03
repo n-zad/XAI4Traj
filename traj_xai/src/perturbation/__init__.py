@@ -9,16 +9,16 @@ from .gan.models import TrajectoryGenerator
 import torch
 
 # Convenience functions for backward compatibility
-def gaussian_perturbation(segment, mean=0, std=3, scale=1.5):
+def gaussian_perturbation(segment, mean=0, std=3, scale=1.5, has_time=False):
     """Legacy function for Gaussian perturbation."""
     return _perturbation.apply(
-        segment, ["gaussian"], {"gaussian": {"mean": mean, "std": std, "scale": scale}}
+        segment, ["gaussian"], {"gaussian": {"mean": mean, "std": std, "scale": scale, "has_time": has_time}}
     )
 
-def scaling_perturbation(segment, scale_factor=1.2):
+def scaling_perturbation(segment, scale_factor=1.2, has_time=False):
     """Legacy function for scaling perturbation."""
     return _perturbation.apply(
-        segment, ["scaling"], {"scaling": {"scale_factor": scale_factor}}
+        segment, ["scaling"], {"scaling": {"scale_factor": scale_factor, "has_time": has_time}}
     )
 
 def rotation_perturbation(segment, angle=np.pi / 18):
@@ -31,8 +31,8 @@ def gan_perturbation(segment, scale=0.5, preserve_endpoints=False):
     checkpoint = torch.load("../src/perturbation/gan/eth_8_model.pt", weights_only=True, map_location=device)
     args = checkpoint["args"]
     G = TrajectoryGenerator(
-        obs_len=len(segment),#args.get("obs_len", 8),
-        pred_len=len(segment),#args.get("pred_len", 8),
+        obs_len=len(segment),
+        pred_len=len(segment),
         embedding_dim=args.get("embedding_dim", 16),
         encoder_h_dim=args.get("encoder_h_dim_g", 32),
         decoder_h_dim=args.get("decoder_h_dim_g", 32),
@@ -51,10 +51,12 @@ def gan_perturbation(segment, scale=0.5, preserve_endpoints=False):
     )
     G.load_state_dict(checkpoint["g_state"], strict=True)
     G.eval()
-    return _perturbation.apply(segment, ["gan"], {"gan": {"G":G, "device":device, "preserve_endpoints":preserve_endpoints, "scale":scale}})
+    return _perturbation.apply(segment, ["gan"], 
+                               {"gan": {"G": G, "device": device, "preserve_endpoints": preserve_endpoints, "scale": scale}})
 
 __all__ = [
     "gaussian_perturbation",
     "scaling_perturbation",
     "rotation_perturbation",
+    "gan_perturbation",
 ]

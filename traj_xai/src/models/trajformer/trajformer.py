@@ -366,7 +366,9 @@ class TrajFormer(BaseModel):
             _len = [len(i) for i in x]
 
         # input: [b, n_time, in_channels]
-        inputs = inputs.squeeze()
+        for dim in range(inputs.dim() - 1, 0, -1):
+            inputs.squeeze(dim=dim)
+        # inputs = inputs.squeeze()
         dt = inputs[..., 2]  # delta time
         dd = inputs[..., 3]  # delta distance
         b, n_time, in_channels = inputs.shape
@@ -381,7 +383,11 @@ class TrajFormer(BaseModel):
         if self.local_layers > 0:
             out = self.conv1d(inputs.permute(0, 2, 1))  # b, token_dim, n_time
             # b, n_time, token_dim
-            out = self.involution(out.unsqueeze(-1), dis).squeeze().permute(0, 2, 1)
+            # out = self.involution(out.unsqueeze(-1), dis).squeeze().permute(0, 2, 1)
+            out = self.involution(out.unsqueeze(-1), dis)
+            for dim in range(out.dim() - 1, 0, -1):
+                out = out.squeeze(dim=dim)
+            out = out.permute(0, 2, 1)
         else:
             out = self.conv1d(inputs.permute(0, 2, 1)).permute(
                 0, 2, 1
