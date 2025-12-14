@@ -74,8 +74,10 @@ See the `notebooks` directory for example usage:
   - `final_experiment_colab.ipynb`: Alternate notebook for Google Colab
 - `comparison.ipynb`: Compares different segmentation and perturbation methods
 - `get_visual.ipynb`: Generate visualizations for trajectory explanations
-- `test_gan_functionality.ipynb`: Combines `basic_example.ipynb` and `final_experiment.ipynb` to expirement with GAN perturbations
+- `test_gan_functionality.ipynb`: Combines `basic_example.ipynb` and `final_experiment.ipynb` to experiment with GAN perturbations
 - `test_time_functionality.ipynb`: Copy of `final_experiment.ipynb` to expirement with time-aware explanations
+- `train_model.ipynb`: Trains the selected model on the selected dataset and persists the model to a `.joblib` file
+- `load_model.ipynb`: Loads a persisted model and runs experiments on a selected dataset and a specified list of segmentation and perturbation methods
 
 ## Requirements
 
