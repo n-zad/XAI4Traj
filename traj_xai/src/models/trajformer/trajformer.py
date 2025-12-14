@@ -12,7 +12,7 @@ from fvcore.nn import FlopCountAnalysis
 from pactus.dataset import Data
 from pactus.models import Model
 from pactus.models.evaluation import Evaluation
-from timm.models.layers import trunc_normal_
+from timm.layers import trunc_normal_
 
 NAME = "trajformer"
 

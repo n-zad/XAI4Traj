@@ -21,11 +21,13 @@ def scaling_perturbation(segment, scale_factor=1.2, has_time=False):
         segment, ["scaling"], {"scaling": {"scale_factor": scale_factor, "has_time": has_time}}
     )
 
-def rotation_perturbation(segment, angle=np.pi / 18):
+def rotation_perturbation(segment, angle=np.pi / 18, has_time=False):
     """Legacy function for rotation perturbation."""
-    return _perturbation.apply(segment, ["rotation"], {"rotation": {"angle": angle}})
+    return _perturbation.apply(
+        segment, ["rotation"], {"rotation": {"angle": angle, "has_time": has_time}}
+    )
 
-def gan_perturbation(segment, scale=0.5, preserve_endpoints=False):
+def gan_perturbation(segment, scale=1, preserve_endpoints=False, has_time=False):
     """GAN perturbation"""
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     checkpoint = torch.load("../src/perturbation/gan/eth_8_model.pt", weights_only=True, map_location=device)
@@ -51,8 +53,9 @@ def gan_perturbation(segment, scale=0.5, preserve_endpoints=False):
     )
     G.load_state_dict(checkpoint["g_state"], strict=True)
     G.eval()
-    return _perturbation.apply(segment, ["gan"], 
-                               {"gan": {"G": G, "device": device, "preserve_endpoints": preserve_endpoints, "scale": scale}})
+    return _perturbation.apply(
+        segment, ["gan"], {"gan": {"G": G, "device": device, "preserve_endpoints": preserve_endpoints, "scale": scale, "has_time": has_time}}
+    )
 
 __all__ = [
     "gaussian_perturbation",

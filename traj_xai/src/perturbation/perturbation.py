@@ -28,7 +28,7 @@ class Perturbation:
         self.default_params = {
             "gaussian": {"mean": 0, "std": 3, "scale": 1.5, "has_time": False},
             "scaling": {"scale_factor": 1.2, "has_time": False},
-            "rotation": {"angle": np.pi / 18},
+            "rotation": {"angle": np.pi / 18, "has_time": False},
             "gan": {},
         }
 
@@ -38,7 +38,7 @@ class Perturbation:
         mean: float = 0,
         std: float = 3,
         scale: float = 1.5,
-        has_time: bool = False,
+        has_time: bool = False
     ) -> List[Tuple[float, float]]:
         """
         Apply Gaussian noise perturbation to a trajectory segment.
@@ -69,7 +69,10 @@ class Perturbation:
         return new_segment
 
     def _scaling_perturbation(
-        self, segment: List[Tuple[float, float]], scale_factor: float = 1.2, has_time: bool = False,
+        self, 
+        segment: List[Tuple[float, float]], 
+        scale_factor: float = 1.2, 
+        has_time: bool = False
     ) -> List[Tuple[float, float]]:
         """
         Apply scaling perturbation to a trajectory segment.
@@ -98,7 +101,10 @@ class Perturbation:
         return new_segment
 
     def _rotation_perturbation(
-        self, segment: List[Tuple[float, float]], angle: float = np.pi / 18
+        self, 
+        segment: List[Tuple[float, float]], 
+        angle: float = np.pi / 18, 
+        has_time: bool = False
     ) -> List[Tuple[float, float]]:
         """
         Apply rotation perturbation to a trajectory segment.
@@ -106,10 +112,14 @@ class Perturbation:
         Parameters:
             segment (list): List of trajectory points
             angle (float): Rotation angle in radians
+            has_time (bool): whether segment contains temporal data (UNIMPLEMENTED)
 
         Returns:
             list: Rotated trajectory segment
         """
+        if has_time:
+            raise NotImplementedError
+        
         new_segment = []
         cos_angle = np.cos(angle)
         sin_angle = np.sin(angle)
@@ -125,26 +135,27 @@ class Perturbation:
         segment: List[Tuple[float, float]],
         G,
         device="cpu",
-        preserve_endpoints=True,      # keep start/end points fixed
-        scale=0.5,
+        preserve_endpoints=True,
+        scale=1,
+        has_time: bool = False
     ) -> List[Tuple[float, float]]:
         """
         Use a GAN to perturb a trajectory segment.
 
         Parameters:
             segment (list): List of trajectory points
-            G : torch.nn.Module
-                Pre-trained generator. The model should be set to eval() outside.
-            device : str
-                "cpu" or CUDA device (e.g., "cuda:0").
-            preserve_endpoints : bool
-                If True, forces residual to be 0 at the endpoints (keeps first & last points).
-            scale : float
-                scalar for the residual
+            G (torch.nn.Module): Pre-trained generator (the model should be set to eval() outside)
+            device (str): "cpu" or CUDA device (e.g., "cuda:0")
+            preserve_endpoints (bool): If True, forces residual to be 0 at the endpoints (keeps first & last points)
+            scale (float): scales the residuals
+            has_time (bool): whether segment contains temporal data (UNIMPLEMENTED)
 
         Returns:
             list: Perturbed trajectory segment
         """
+        if has_time:
+            raise NotImplementedError
+
         try:
             import torch
 

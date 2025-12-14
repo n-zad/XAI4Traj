@@ -15,7 +15,7 @@ from .xai_time import TrajectoryManipulator2
 logger = logging.getLogger(__name__)
 
 
-def experiment(dataset, segment_func, perturbation_func, blackbox_model, time=False):
+def experiment(dataset, segment_func, perturbation_func, blackbox_model, time=False, surrogate_params=None):
     """
     Run experiment on a dataset using the specified segmentation and perturbation functions.
 
@@ -25,6 +25,7 @@ def experiment(dataset, segment_func, perturbation_func, blackbox_model, time=Fa
         perturbation_func (callable): Function for trajectory perturbation
         blackbox_model: The model to explain
         time: boolean, True if temporal data will be used
+        surrogate_params: dict, Set hyperparameters for surrogate model
     Yields:
         tuple: (trajectory_index, trajectory_name, change_flag, precision_score, status)
     """
@@ -45,25 +46,24 @@ def experiment(dataset, segment_func, perturbation_func, blackbox_model, time=Fa
         traj_name = generate_unique_name(traj_points)
 
         trajectory_experiment = None
-        if not time:
-            try:
-                trajectory_experiment = TrajectoryManipulator(
-                    traj_points, segment_func, perturbation_func, blackbox_model
-                )
-            except Exception as e:
-                logger.error(f"Init error at trajectory {traj_idx}: {e}", exc_info=True)
-                yield traj_idx, traj_name, None, None, "error_init"
-                continue
-        else:
-            try:
+        # try:
+        #     trajectory_experiment = TrajectoryManipulator(
+        #         traj_points, segment_func, perturbation_func, blackbox_model
+        #     )
+        # except Exception as e:
+        #     logger.error(f"Init error at trajectory {traj_idx}: {e}", exc_info=True)
+        #     yield traj_idx, traj_name, None, None, "error_init"
+        #     continue
+        try:
+            if time:
                 traj_points = [list(tr) + [t] for tr, t in zip(traj_points, traj_time)]
-                trajectory_experiment = TrajectoryManipulator2(
-                    traj_points, segment_func, perturbation_func, blackbox_model, has_time=True
-                )
-            except Exception as e:
-                logger.error(f"Init error #2 at trajectory {traj_idx}: {e}", exc_info=True)
-                yield traj_idx, traj_name, None, None, "error_init2"
-                continue
+            trajectory_experiment = TrajectoryManipulator2(
+                traj_points, segment_func, perturbation_func, blackbox_model, has_time=time, surrogate_params=surrogate_params
+            )
+        except Exception as e:
+            logger.error(f"Init error #2 at trajectory {traj_idx}: {e}", exc_info=True)
+            yield traj_idx, traj_name, None, None, "error_init2"
+            continue
 
         try:
             coef = trajectory_experiment.explain()
@@ -145,7 +145,8 @@ def experiment(dataset, segment_func, perturbation_func, blackbox_model, time=Fa
         yield traj_idx, traj_name, change, precision_score, "ok"
 
 
-def run_experiments(dataset, segment_funcs, perturbation_funcs, model, log_dir="logs", time=False, log_idx=None):
+def run_experiments(dataset, segment_funcs, perturbation_funcs, model, log_dir="logs", 
+                    time=False, surrogate_params=None, log_dataset = None, log_model = None, log_idx=None):
     """
     Run multiple experiments with different segmentation and perturbation functions.
 
@@ -156,6 +157,10 @@ def run_experiments(dataset, segment_funcs, perturbation_funcs, model, log_dir="
         model: The model to explain
         log_dir (str): Directory for log files
         time (bool): If temporal data should be used
+        surrogate_params (dict): Set hyperparameters for surrogate model
+        log_dataset (str): Specify dataset name for log files
+        log_model (str): Specify model name for log files
+        log_idx (int): Specify number to append to log files
     """
     os.makedirs(log_dir, exist_ok=True)
 
@@ -163,13 +168,23 @@ def run_experiments(dataset, segment_funcs, perturbation_funcs, model, log_dir="
     for segment_func in segment_funcs:
         for perturbation_func in perturbation_funcs:
             # Generate file path for saving results
+            dataset_str = f"{log_dataset}_" if log_dataset else ""
+            model_str = f"{log_model}_" if log_model else ""
+            segment_str = f"{str(segment_func.__name__).rsplit('_', 1)[0]}_"
+            perturb_str = f"{str(perturbation_func.__name__).rsplit('_', 1)[0]}_"
+            time_str = "time_" if time else ""
+            idx_str = f"{log_idx}_" if log_idx else ""
             file_path = os.path.join(
                 log_dir,
-                f"{segment_func.__name__}_{perturbation_func.__name__}_{'time_' if time else ''}_{f'{log_idx}_' if log_idx is not None else ''}results.csv",
+                f"{dataset_str}{model_str}{segment_str}{perturb_str}{time_str}{idx_str}results.csv",
             )
+            # file_path = os.path.join(
+            #     log_dir,
+            #     f"{segment_func.__name__}_{perturbation_func.__name__}_{'time_' if time else ''}results.csv",
+            # )
 
             logger.info(
-                f"Running experiment with {segment_func.__name__} and {perturbation_func.__name__}"
+                f"Running experiment with {segment_func.__name__} and {perturbation_func.__name__}{' and time' if time else ''}"
             )
 
             # Loop through the experiment results and save row by row

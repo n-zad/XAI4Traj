@@ -1,7 +1,9 @@
 """
 XAI methods for trajectory explanations with logging.
 
-(alternate version of xai.py that utilizes temporal data)
+(alternate version of xai.py that adds:
+- the option to utilize temporal data
+- the ability to set hyperparameters for the surrogate model)
 """
 
 import random
@@ -44,12 +46,17 @@ class TrajectoryManipulator2:
         perturbation_model: Any,
         model: Any,
         has_time: bool = False,
+        surrogate_params: dict = None,
     ) -> None:
         self.X: List[List[float]] = list(X)
         self.segmentation_model = segmentation_model
         self.perturbation_model = perturbation_model
         self.model = model
         self.has_time = has_time
+        if surrogate_params is None:
+            self.surrogate_params = {'C': 0.5, 'tol': 0.00001, 'max_iter': 500}
+        else:
+            self.surrogate_params = surrogate_params
 
         self.segments: List[List[float]] = self._segmentation(self.X)
         self.x_len: int = len(self.segments)
@@ -129,7 +136,8 @@ class TrajectoryManipulator2:
     def explain(self) -> Union[np.ndarray, None]:
         try:
             logger.debug("Starting explanation process...")
-            Z_trajs = [Trajectory(points=np.array(Z_traj)) for Z_traj in self._perturbed_traj_generator()]
+            # Z_trajs = [Trajectory(points=np.array(Z_traj)) for Z_traj in self._perturbed_traj_generator()]
+            Z_trajs = [self._create_trajectory(Z_traj) for Z_traj in self._perturbed_traj_generator()]
             labels = [1] * (len(Z_trajs) - 1) + [0]
             Z_pro = Dataset("custom", Z_trajs, labels)
             preds = self._predict(Z_pro)
@@ -236,7 +244,7 @@ class TrajectoryManipulator2:
         return pred_labels.tolist() if isinstance(pred_labels, np.ndarray) else list(pred_labels)
 
     def _fit_surrogate(self, Y: list) -> None:
-        clf = LogisticRegression(C=0.5, tol=0.00001, max_iter=500)
+        clf = LogisticRegression(**self.surrogate_params)
         weights = self._calculate_weight()
 
         if len(Y) > 0 and isinstance(Y[0], str):
@@ -253,7 +261,8 @@ class TrajectoryManipulator2:
     def get_Y_eval_sorted(self) -> Union[List[Any], np.ndarray]:
         try:
             logger.debug("Starting get_Y_eval_sorted process...")
-            Z_trajs = [Trajectory(points=np.array(Z_traj)) for Z_traj in self.Z_eval]
+            # Z_trajs = [Trajectory(points=np.array(Z_traj)) for Z_traj in self.Z_eval]
+            Z_trajs = [self._create_trajectory(Z_traj) for Z_traj in self.Z_eval]
             labels = [1] * (len(Z_trajs) - 1) + [0]
             Z_pro = Dataset("custom1", Z_trajs, labels)
 
@@ -295,7 +304,8 @@ class TrajectoryManipulator2:
     def get_Y(self) -> List[Any]:
         try:
             logger.debug("Starting get_Y process...")
-            Z_trajs = [Trajectory(points=np.array(self.X))]
+            # Z_trajs = [Trajectory(points=np.array(self.X))]
+            Z_trajs = [self._create_trajectory(self.X)]
             labels = [0]
             Z_pro = Dataset("custom1", Z_trajs, labels)
             # logger.debug(f"get_Y: Z_pro type={type(Z_pro)}, Z_trajs type={type(Z_trajs)}, len(Z_trajs)={len(Z_trajs)}")
@@ -315,3 +325,10 @@ class TrajectoryManipulator2:
 
     def get_segment(self) -> List[List[float]]:
         return self.segments
+    
+    def _create_trajectory(self, X: List[List[float]]) -> Trajectory:
+        arr = np.array(X)
+        if self.has_time:
+            return Trajectory(points=arr[:, :-1], t=arr[:, -1])
+        else:
+            return Trajectory(points=arr)
